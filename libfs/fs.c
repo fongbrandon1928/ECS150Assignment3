@@ -26,11 +26,6 @@ typedef struct RootDirectory {
     uint8_t unused[10];             // Unused/Padding to align to 32 bytes
 } __attribute__((packed));
 
-struct FileDescriptor {
-	void * file_entry;
-    size_t offset;
-};
-
 SuperBlock superblock = NULL;
 RootDirectory *root_directory = NULL;
 uint16_t *fat16 = NULL;
