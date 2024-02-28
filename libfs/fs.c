@@ -47,6 +47,29 @@ int fs_mount(const char *diskname) {
         block_disk_close();
         return -1;
     }
+
+    // Check the total block count
+    int total_blocks = block_disk_count();
+    if (total_blocks == -1 || total_blocks != superblock.total_blocks) {
+        block_disk_close();
+        return -1;
+    }
+
+    // Allocate and initialize the FAT
+    fat16 = malloc(superblock.fat_blocks * BLOCK_SIZE);
+    if (!fat16) {
+        block_disk_close();
+        return -1;
+    }
+
+    // Read the FAT blocks from disk
+    for (uint8_t i = 0; i < superblock.fat_blocks; i++) {
+        if (block_read(1 + i, fat16 + (BLOCK_SIZE / sizeof(fat16)) * i) == -1) {
+            free(fat16);
+            block_disk_close();
+            return -1;
+        }
+    }
 }
 
 int fs_umount(void) 
