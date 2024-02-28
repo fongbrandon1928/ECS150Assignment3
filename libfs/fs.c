@@ -64,7 +64,7 @@ int fs_mount(const char *diskname) {
 
     // Read the FAT blocks from disk
     for (uint8_t i = 0; i < superblock.fat_blocks; i++) {
-        if (block_read(1 + i, fat16 + (BLOCK_SIZE / sizeof(fat16)) * i) == -1) {
+        if (block_read(1 + i, fat16 + (BLOCK_SIZE / sizeof(uint16_t)) * i) == -1) {
             free(fat16);
             block_disk_close();
             return -1;
