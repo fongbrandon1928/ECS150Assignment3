@@ -448,7 +448,7 @@ int fs_read(int fd, void *buf, size_t count)
         if (block_number == FAT_EOC) break; // End of file reached
 
         size_t block_offset = (offset + bytes_read) % BLOCK_SIZE;
-        size_t bytes_to_read = min(BLOCK_SIZE - block_offset, count - bytes_read);
+        size_t bytes_to_read = minimum(BLOCK_SIZE - block_offset, count - bytes_read);
 
         // Read the entire block into bounce_buffer
         block_read(block_number, bounce_buffer);
