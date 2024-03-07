@@ -53,7 +53,7 @@ int fs_mount(const char *diskname)
         return -1;
     }
 
-    if (block_read(0, &superblock, sizeof(superblock)) == -1) {
+    if (block_read(0, &superblock) == -1) {
         block_disk_close();
         return -1;
     }
