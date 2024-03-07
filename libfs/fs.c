@@ -132,10 +132,28 @@ int fs_info(void)
         return -1;
     }
     
+    int fat_free_count = 0;
+    for (int i = 0; i < superblock.data_blocks; i++) {
+        if (fat16[i] == 0) {
+            fat_free_count++;
+        }
+    }
+    
+    int free_rdir_entries = 0;
+    for (int i = 0; i < FS_FILE_MAX_COUNT; i++) {
+        if (root_directory[i].filename[0] == '\0') {
+            free_rdir_entries++;
+        }
+    }
+    
     printf("FS Info:\n");
-    printf("Total number of blocks: %d\n", superblock.total_blocks);
-    printf("Data block count: %d\n", superblock.data_blocks);
-    printf("FAT block count: %d\n", superblock.fat_blocks);
+    printf("total_blk_count=%d\n", superblock.total_blocks);
+    printf("fat_blk_count=%d\n", superblock.fat_blocks);
+    printf("rdir_blk=%d\n", superblock.root_dir_index);
+    printf("data_blk=%d\n", superblock.data_start_index);
+    printf("data_blk_count=%d\n", superblock.data_blocks);
+    printf("fat_free_ratio=%d/%d\n", fat_free_count, superblock.data_blocks);
+    printf("rdir_free_ratio=%d/%d\n", free_rdir_entries, FS_FILE_MAX_COUNT);
     return 0;
 }
 
