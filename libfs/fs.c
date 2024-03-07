@@ -53,7 +53,7 @@ int fs_mount(const char *diskname)
         return -1;
     }
 
-    if (block_read(0, &superblock) == -1) {
+    if (block_read(0, &superblock, sizeof(superblock)) == -1) {
         block_disk_close();
         return -1;
     }
@@ -402,7 +402,7 @@ int fs_write(int fd, void *buf, size_t count)
         }
 
         // Copy data from buf to bounceBuffer for the current block segment
-        memcpy(bounceBuffer + blockOffset, &buf + bytesWritten, bytesToWrite);
+        memcpy(bounceBuffer + blockOffset, (char*)buf + bytesWritten, bytesToWrite);
 
         // Write the updated bounce buffer back to the block
         block_write(blockIndex, bounceBuffer);
@@ -465,7 +465,7 @@ int fs_read(int fd, void *buf, size_t count)
         }
 
         // Copy the needed part of bounceBuffer to buf
-        memcpy(&buf + bytesRead, bounceBuffer + blockOffset, bytesToRead);
+        memcpy((char*)buf + bytesRead, bounceBuffer + blockOffset, bytesToRead);
 
         bytesRead += bytesToRead;
         fd_table[fd].offset += bytesToRead; // Update the file descriptor's offset
