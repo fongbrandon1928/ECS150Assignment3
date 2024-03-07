@@ -465,7 +465,7 @@ int fs_read(int fd, void *buf, size_t count)
         }
 
         // Copy the needed part of bounceBuffer to buf
-        memcpy(&buf + bytesRead, bounceBuffer + blockOffset, bytesToRead);
+        memcpy((char*)buf + bytesRead, bounceBuffer + blockOffset, bytesToRead);
 
         bytesRead += bytesToRead;
         fd_table[fd].offset += bytesToRead; // Update the file descriptor's offset
