@@ -13,7 +13,6 @@ size_t calculate_block_index(size_t offset, uint16_t first_data_block);
 uint16_t allocate_new_block(void);
 void update_fat_chain(uint16_t first_block, uint16_t new_block);
 size_t minimum(size_t a, size_t b);
-int find_block_index(int fd, size_t offset);
 
 #define FAT_EOC 0xFFFF
 
@@ -430,38 +429,49 @@ int fs_read(int fd, void *buf, size_t count)
         return -1;
     }
 
-    int root_dir_index = fd_table[fd].root_dir_index;
-    size_t file_size = root_directory[root_dir_index].file_size;
-    size_t offset = fd_table[fd].offset;
+    struct RootDirectory *file = &root_directory[fd_table[fd].root_dir_index];
+    size_t fileSize = file->file_size;
+    size_t fileOffset = fd_table[fd].offset;
 
-    // Adjust count if read request exceeds file size from current offset
-    if (offset + count > file_size) {
-        count = file_size - offset;
+    if (fileOffset >= fileSize) {
+        return 0; // Offset is at or beyond the end of the file, nothing to read
     }
 
-    size_t bytes_read = 0;
-    char bounce_buffer[BLOCK_SIZE];
-    int block_number;
-
-    while (bytes_read < count) {
-        block_number = find_block_index(fd, offset + bytes_read);
-        if (block_number == FAT_EOC) break; // End of file reached
-
-        size_t block_offset = (offset + bytes_read) % BLOCK_SIZE;
-        size_t bytes_to_read = minimum(BLOCK_SIZE - block_offset, count - bytes_read);
-
-        // Read the entire block into bounce_buffer
-        block_read(block_number, bounce_buffer);
-        // Copy the needed part into the user buffer
-        memcpy((char*)buf + bytes_read, bounce_buffer + block_offset, bytes_to_read);
-
-        bytes_read += bytes_to_read;
+    if (count + fileOffset > fileSize) {
+        count = fileSize - fileOffset;
     }
 
-    // Update the file descriptor's offset
-    fd_table[fd].offset += bytes_read;
+    size_t bytesRead = 0;
+    char bounceBuffer[BLOCK_SIZE];
 
-    return bytes_read;
+    while (bytesRead < count) {
+        uint16_t current_block = calculate_block_index(fileOffset + bytesRead, file->first_data_block);
+        if (current_block == FAT_EOC) {
+            break; // Reached the end of the file or an error occurred
+        }
+
+        // Calculate blockOffset and bytesToRead for partial block reads
+        size_t blockOffset = (fileOffset + bytesRead) % BLOCK_SIZE;
+        size_t bytesToRead = minimum(BLOCK_SIZE - blockOffset, count - bytesRead);
+
+        // Adjust bytesToRead based on the file's remaining size
+        if (bytesToRead + bytesRead + fileOffset > fileSize) {
+            bytesToRead = fileSize - bytesRead - fileOffset;
+        }
+
+        // Read the block into bounceBuffer
+        if (block_read(current_block, bounceBuffer) == -1) {
+            break; // Failed to read the block
+        }
+
+        // Copy the needed part of bounceBuffer to buf
+        memcpy((char*)buf + bytesRead, bounceBuffer + blockOffset, bytesToRead);
+
+        bytesRead += bytesToRead;
+        fd_table[fd].offset += bytesToRead; // Update the file descriptor's offset
+    }
+    
+    return bytesRead;
 }
 
 size_t calculate_block_index(size_t offset, uint16_t first_data_block) {
@@ -476,19 +486,6 @@ size_t calculate_block_index(size_t offset, uint16_t first_data_block) {
     }
 
     return current_block;
-}
-
-int find_block_index(int fd, size_t offset) {
-    int block_index = fd_table[fd].root_dir_index;
-    size_t current_offset = 0;
-    size_t block_number = root_directory[block_index].first_data_block;
-
-    while (current_offset + BLOCK_SIZE <= offset && block_number != FAT_EOC) {
-        block_number = fat16[block_number]; // Move to the next block in the chain
-        current_offset += BLOCK_SIZE;
-    }
-
-    return block_number;
 }
 
 uint16_t allocate_new_block() {
