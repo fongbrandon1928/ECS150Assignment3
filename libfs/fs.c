@@ -468,9 +468,8 @@ int fs_read(int fd, void *buf, size_t count)
         memcpy((char*)buf + bytesRead, bounceBuffer + blockOffset, bytesToRead);
 
         bytesRead += bytesToRead;
-        fd_table[fd].offset += bytesToRead; // Update the file descriptor's offset
     }
-    
+    fd_table[fd].offset += bytesRead;
     return bytesRead;
 }
 
