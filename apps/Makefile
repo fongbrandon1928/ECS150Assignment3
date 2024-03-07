@@ -1,7 +1,5 @@
 # Target programs
 programs := \
-			simple_writer.x \
-			simple_reader.x \
 			test_fs.x
 
 # File-system library
