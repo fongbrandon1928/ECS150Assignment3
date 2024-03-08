@@ -8,8 +8,6 @@
 
 #include "disk.h"
 
-/* TODO: Phase 1 */
-
 uint16_t allocate_new_block(void);
 size_t minimum(size_t a, size_t b);
 uint16_t get_offset_blk(int fd, size_t offset);
@@ -346,7 +344,7 @@ int fs_write(int fd, void *buf, size_t count) {
         return -1;
     }
 
-    struct RootDirectory *dir_entry =
+    struct RootDirectory *directory =
         &root_directory[fd_table[fd].root_dir_index];
     if (count == 0) return 0;  // Nothing to write
 
@@ -367,7 +365,7 @@ int fs_write(int fd, void *buf, size_t count) {
             }
 
             // Update FAT to link this new block to the file
-            if (offset == dir_entry->file_size) {
+            if (offset == directory->file_size) {
                 // Link new block at the end of the file
                 link_new_block_to_file(fd_table[fd].root_dir_index, current_block);
             }
@@ -387,8 +385,8 @@ int fs_write(int fd, void *buf, size_t count) {
     }
 
     // Update file size if we've written beyond the current file size
-    if (offset + bytes_written > dir_entry->file_size) {
-        dir_entry->file_size = offset + bytes_written;
+    if (offset + bytes_written > directory->file_size) {
+        directory->file_size = offset + bytes_written;
     }
 
     // Update the file descriptor's offset
@@ -399,47 +397,47 @@ int fs_write(int fd, void *buf, size_t count) {
 }
 
 int fs_read(int fd, void *buf, size_t count) {
-    if (!fat16 || !root_directory || !buf) {
+    if (!fat16 || !root_directory) {
         return -1;
     }
     if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || fd_table[fd].used == 0 || !buf) {
         return -1;
     }
 
-    struct RootDirectory *dir_entry = &root_directory[fd_table[fd].root_dir_index];
+    struct RootDirectory *directory = &root_directory[fd_table[fd].root_dir_index];
     size_t offset = fd_table[fd].offset;
-    int32_t real_count = clamp(dir_entry->file_size - offset, 0, count);
+    int32_t real_count = clamp(directory->file_size - offset, 0, count);
     if (real_count == 0) {
         return 0;
     }
 
-    uint16_t read_blk = get_offset_blk(fd, offset);
-    if (read_blk == 0) {
+    uint16_t read_block = get_offset_blk(fd, offset);
+    if (read_block == 0) {
         return -1;  // Nothing can be read
     }
 
     void *bounce_buffer = malloc(BLOCK_SIZE);
     memset(bounce_buffer, 0, BLOCK_SIZE);
-    int buf_idx = 0;
+    int buf_index = 0;
 
-    block_read(read_blk + superblock.data_start_index, bounce_buffer);
-    memcpy(buf + buf_idx, bounce_buffer, clamp(real_count, 0, BLOCK_SIZE));
+    block_read(read_block + superblock.data_start_index, bounce_buffer);
+    memcpy(buf + buf_index, bounce_buffer, clamp(real_count, 0, BLOCK_SIZE));
 
-    buf_idx += clamp(real_count, 0, BLOCK_SIZE);
+    buf_index += clamp(real_count, 0, BLOCK_SIZE);
     real_count -= BLOCK_SIZE;  // Remaining bytes to read
-    read_blk = fat16[read_blk];  // Get the next block in the file's data block chain
+    read_block = fat16[read_block];  // Get the next block in the file's data block chain
 
-    while (real_count > 0 && read_blk != FAT_EOC) {
+    while (real_count > 0 && read_block != FAT_EOC) {
         if (real_count >= BLOCK_SIZE) {
-            block_read(read_blk + superblock.data_start_index, buf + buf_idx);
-            buf_idx += BLOCK_SIZE;
+            block_read(read_block + superblock.data_start_index, buf + buf_index);
+            buf_index += BLOCK_SIZE;
         } else {
-            block_read(read_blk + superblock.data_start_index, bounce_buffer);
-            memcpy(buf + buf_idx, bounce_buffer, real_count);
-            buf_idx += real_count;  // This increment is actually unnecessary
+            block_read(read_block + superblock.data_start_index, bounce_buffer);
+            memcpy(buf + buf_index, bounce_buffer, real_count);
+            buf_index += real_count;  // This increment is actually unnecessary
         }
         real_count -= BLOCK_SIZE;
-        read_blk = fat16[read_blk];  // Advance to the next block
+        read_block = fat16[read_block];  // Advance to the next block
     }
 
     free(bounce_buffer);
@@ -473,6 +471,8 @@ uint16_t allocate_new_block(void) {
     return 0;  // No free blocks available
 }
 
+/* calculates the FAT index of the block containing the file's data at a given offset, 
+traversing the FAT chain from the file's start block to reach the correct block for the offset.*/
 uint16_t get_offset_blk(int fd, size_t offset) {
     if (!fat16 || !root_directory) {
         return -1;
@@ -481,14 +481,14 @@ uint16_t get_offset_blk(int fd, size_t offset) {
         return -1;
     }
 
-    struct RootDirectory *dir_entry =
+    struct RootDirectory *directory =
         &root_directory[fd_table[fd].root_dir_index];
-    if (offset >= dir_entry->file_size) {
+    if (offset >= directory->file_size) {
         return 0;  // Offset is larger than file size
     }
 
     int block_count = file_blk_count(offset);
-    uint16_t current_block = dir_entry->first_data_block;
+    uint16_t current_block = directory->first_data_block;
     for (int i = 1; i < block_count; ++i) {  // Navigate to the correct block
         current_block = fat16[current_block];
     }
@@ -503,35 +503,38 @@ int file_blk_count(uint32_t sz) {
     return (blocks * BLOCK_SIZE < sz) ? (blocks + 1) : blocks;
 }
 
+/* Dynamically allocates new blocks as needed when writing data extends beyond the 
+current end of a file, updating the file's size and the FAT to reflect the expanded 
+file structure.*/
 void expand_file(int fd, size_t new_size) {
-    struct RootDirectory *dir_entry =
-        &root_directory[fd_table[fd].root_dir_index];
-    while (dir_entry->file_size < new_size) {
+    struct RootDirectory *directory = &root_directory[fd_table[fd].root_dir_index];
+    while (directory->file_size < new_size) {
         uint16_t new_block = allocate_new_block();
         if (new_block == FAT_EOC) break;  // No space left, stop expanding
 
         // If the file has no blocks yet, initialize first_data_block
-        if (dir_entry->first_data_block == FAT_EOC) {
-            dir_entry->first_data_block = new_block;
+        if (directory->first_data_block == FAT_EOC) {
+            directory->first_data_block = new_block;
         } else {
             // Find the last block in the file's chain and link the new block
-            uint16_t last_block = dir_entry->first_data_block;
+            uint16_t last_block = directory->first_data_block;
             while (fat16[last_block] != FAT_EOC) {
                 last_block = fat16[last_block];
             }
             fat16[last_block] = new_block;  // Link the new block
         }
 
-        dir_entry->file_size = new_size;  // Update the file size
+        directory->file_size = new_size;  // Update the file size
     }
 }
 
+/* updates the FAT to append a newly allocated block to the end of a file's block chain, 
+maintaining file continuity.*/
 void link_new_block_to_file(int root_dir_index, uint16_t new_block) {
-    // Find the last block in the file's chain
+    // Traverse the FAT from the file's first block to link the new block at the end of the file's block chain.
     uint16_t last_block = root_directory[root_dir_index].first_data_block;
     if (last_block == FAT_EOC) {
-        // If the file has no blocks, this new block is the first block
-        root_directory[root_dir_index].first_data_block = new_block;
+        root_directory[root_dir_index].first_data_block = new_block; // If the file has no blocks, this new block is the first block
     } else {
         // Otherwise, find the end of the chain and link the new block
         while (fat16[last_block] != FAT_EOC) {
@@ -539,6 +542,5 @@ void link_new_block_to_file(int root_dir_index, uint16_t new_block) {
         }
         fat16[last_block] = new_block;  // Link the new block
     }
-    // Mark the new block as the end of the chain
-    fat16[new_block] = FAT_EOC;
+    fat16[new_block] = FAT_EOC; // Mark the new block as the end of the chain
 }
