@@ -9,9 +9,7 @@
 
 /* TODO: Phase 1 */
 
-size_t calculate_block_index(size_t offset, uint16_t first_data_block);
 uint16_t allocate_new_block(void);
-void update_fat_chain(uint16_t first_block, uint16_t new_block);
 size_t minimum(size_t a, size_t b);
 uint16_t get_offset_blk(int fd, size_t offset);
 int file_blk_count(uint32_t sz);
@@ -468,20 +466,6 @@ int fs_read(int fd, void *buf, size_t count) {
     return (count - real_count); // Return the number of bytes actually read
 }
 
-size_t calculate_block_index(size_t offset, uint16_t first_data_block) {
-    size_t blocks_to_skip = offset / BLOCK_SIZE;
-    uint16_t current_block = first_data_block;
-
-    for (size_t i = 0; i < blocks_to_skip; ++i) {
-        if (current_block == FAT_EOC || fat16[current_block] == 0) {
-            return FAT_EOC;
-        }
-        current_block = fat16[current_block];
-    }
-
-    return current_block;
-}
-
 uint16_t allocate_new_block(void) {
     // Implementation for finding a free block in the FAT and marking it as used
     for (uint16_t i = 0; i < superblock.data_blocks; i++) {
@@ -491,18 +475,6 @@ uint16_t allocate_new_block(void) {
         }
     }
     return 0; // Indicate no free blocks are available
-}
-
-void update_fat_chain(uint16_t first_block, uint16_t new_block) {
-    uint16_t current_block = first_block;
-
-    // Follow the chain until the end
-    while (fat16[current_block] != FAT_EOC) {
-        current_block = fat16[current_block];
-    }
-
-    // Link the new block at the end of the chain
-    fat16[current_block] = new_block;
 }
 
 size_t minimum(size_t a, size_t b) {
