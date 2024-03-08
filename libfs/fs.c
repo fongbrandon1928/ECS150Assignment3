@@ -14,6 +14,8 @@ size_t minimum(size_t a, size_t b);
 uint16_t get_offset_blk(int fd, size_t offset);
 int file_blk_count(uint32_t sz);
 static inline int32_t clamp(int32_t val, int32_t min, int32_t max);
+void expand_file(int fd, size_t new_size);
+void link_new_block_to_file(int root_dir_index, uint16_t new_block);
 
 #define FAT_EOC 0xFFFF
 
@@ -381,18 +383,23 @@ int fs_write(int fd, void *buf, size_t count) {
     if (count == 0) return 0; // Nothing to write
 
     size_t offset = fd_table[fd].offset;
-    if (offset > dir_entry->file_size) return -1; // Offset beyond file size
-
     size_t bytes_written = 0;
     void *bounce_buffer = malloc(BLOCK_SIZE);
     if (!bounce_buffer) return -1; // Failed to allocate memory
 
     while (bytes_written < count) {
+        // Calculate the block to write to, based on the current offset
         uint16_t current_block = get_offset_blk(fd, offset + bytes_written);
-        if (current_block == FAT_EOC) {
+        if (current_block == FAT_EOC || current_block == 0) {
             // Allocate a new block if necessary
-            current_block = allocate_new_block(); // This function needs to be implemented
+            current_block = allocate_new_block();
             if (current_block == 0) break; // No more space on disk
+
+            // Update FAT to link this new block to the file
+            if (offset == dir_entry->file_size) {
+                // Link new block at the end of the file
+                link_new_block_to_file(fd_table[fd].root_dir_index, current_block);
+            }
         }
 
         size_t block_offset = (offset + bytes_written) % BLOCK_SIZE;
@@ -400,10 +407,10 @@ int fs_write(int fd, void *buf, size_t count) {
 
         // For partial block writes, read the block first, then modify the necessary parts
         if (block_offset != 0 || bytes_to_write != BLOCK_SIZE) {
-            block_read(current_block, bounce_buffer);
+            block_read(current_block + superblock.data_start_index, bounce_buffer);
         }
         memcpy(bounce_buffer + block_offset, buf + bytes_written, bytes_to_write);
-        block_write(current_block, bounce_buffer);
+        block_write(current_block + superblock.data_start_index, bounce_buffer);
 
         bytes_written += bytes_to_write;
     }
@@ -411,6 +418,7 @@ int fs_write(int fd, void *buf, size_t count) {
     // Update file size if we've written beyond the current file size
     if (offset + bytes_written > dir_entry->file_size) {
         dir_entry->file_size = offset + bytes_written;
+        // This assumes you have a way to write back the updated root directory entry to disk
     }
 
     // Update the file descriptor's offset
@@ -519,4 +527,43 @@ static inline int32_t clamp(int32_t val, int32_t min, int32_t max) {
     if (val < min) return min;
     if (val > max) return max;
     return val;
+}
+
+void expand_file(int fd, size_t new_size) {
+    struct RootDirectory *dir_entry = &root_directory[fd_table[fd].root_dir_index];
+    while (dir_entry->file_size < new_size) {
+        uint16_t new_block = allocate_new_block();
+        if (new_block == FAT_EOC) break; // No space left, stop expanding
+        
+        // If the file has no blocks yet, initialize first_data_block
+        if (dir_entry->first_data_block == FAT_EOC) {
+            dir_entry->first_data_block = new_block;
+        } else {
+            // Find the last block in the file's chain and link the new block
+            uint16_t last_block = dir_entry->first_data_block;
+            while (fat16[last_block] != FAT_EOC) {
+                last_block = fat16[last_block];
+            }
+            fat16[last_block] = new_block; // Link the new block
+        }
+        
+        dir_entry->file_size = new_size; // Update the file size
+    }
+}
+
+void link_new_block_to_file(int root_dir_index, uint16_t new_block) {
+    // Find the last block in the file's chain
+    uint16_t last_block = root_directory[root_dir_index].first_data_block;
+    if (last_block == FAT_EOC) {
+        // If the file has no blocks, this new block is the first block
+        root_directory[root_dir_index].first_data_block = new_block;
+    } else {
+        // Otherwise, find the end of the chain and link the new block
+        while (fat16[last_block] != FAT_EOC) {
+            last_block = fat16[last_block];
+        }
+        fat16[last_block] = new_block; // Link the new block
+    }
+    // Mark the new block as the end of the chain
+    fat16[new_block] = FAT_EOC;
 }
