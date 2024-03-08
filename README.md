@@ -32,7 +32,7 @@ while deletion involved removing the entry and freeing associated data blocks.
 
 fs_create: involved locating an empty entry in the root directory and setting up
 the initial metadata for a new file. The file size was initialized to zero, and 
-the first data block index was set to the End-of-Chain (FAT_EOC) marker, 
+the first data block index was set to the End of Chain (FAT_EOC) marker, 
 indicating an empty file. In contrast, fs_delete removed a file's entry from the
 root directory and freed up the data blocks used by the file in the FAT.
 
