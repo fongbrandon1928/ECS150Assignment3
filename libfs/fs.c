@@ -371,8 +371,7 @@ int fs_lseek(int fd, size_t offset)
 
 }
 
-int fs_write(int fd, void *buf, size_t count)
-{
+int fs_write(int fd, void *buf, size_t count) {
     if (!fat16 || !root_directory || !buf) {
         return -1;
     }
@@ -380,47 +379,47 @@ int fs_write(int fd, void *buf, size_t count)
         return -1;
     }
 
-    struct RootDirectory *file = &root_directory[fd_table[fd].root_dir_index];
-    size_t bytesWritten = 0;
-    size_t fileOffset = fd_table[fd].offset;
-    char bounceBuffer[BLOCK_SIZE];
+    struct RootDirectory *dir_entry = &root_directory[fd_table[fd].root_dir_index];
+    if (count == 0) return 0; // Nothing to write
 
-    while (bytesWritten < count) {
-        size_t blockIndex = calculate_block_index(fileOffset + bytesWritten, file->first_data_block);
-        if (blockIndex == FAT_EOC) {
-            // Need to allocate a new block if blockIndex is FAT_EOC indicating end of file or no allocation
-            blockIndex = allocate_new_block(); 
-            if (blockIndex == FAT_EOC) break; // No space left on disk
-            // Link the newly allocated block to the file's block chain in the FAT
-            update_fat_chain(file->first_data_block, blockIndex);
+    size_t offset = fd_table[fd].offset;
+    if (offset > dir_entry->file_size) return -1; // Offset beyond file size
+
+    size_t bytes_written = 0;
+    void *bounce_buffer = malloc(BLOCK_SIZE);
+    if (!bounce_buffer) return -1; // Failed to allocate memory
+
+    while (bytes_written < count) {
+        uint16_t current_block = get_offset_blk(fd, offset + bytes_written);
+        if (current_block == FAT_EOC) {
+            // Allocate a new block if necessary
+            current_block = allocate_new_block(); // This function needs to be implemented
+            if (current_block == 0) break; // No more space on disk
         }
 
-        size_t blockOffset = (fileOffset + bytesWritten) % BLOCK_SIZE;
-        size_t bytesToEndOfBlock = BLOCK_SIZE - blockOffset;
-        size_t bytesToWrite = minimum(count - bytesWritten, bytesToEndOfBlock);
+        size_t block_offset = (offset + bytes_written) % BLOCK_SIZE;
+        size_t bytes_to_write = minimum(BLOCK_SIZE - block_offset, count - bytes_written);
 
-    // If writing within a block (not from the start), read the block first to preserve existing data
-        if (blockOffset != 0 || bytesToWrite < BLOCK_SIZE) {
-            block_read(blockIndex, bounceBuffer);
+        // For partial block writes, read the block first, then modify the necessary parts
+        if (block_offset != 0 || bytes_to_write != BLOCK_SIZE) {
+            block_read(current_block, bounce_buffer);
         }
+        memcpy(bounce_buffer + block_offset, buf + bytes_written, bytes_to_write);
+        block_write(current_block, bounce_buffer);
 
-        // Copy data from buf to bounceBuffer for the current block segment
-        memcpy(bounceBuffer + blockOffset, (char*)buf + bytesWritten, bytesToWrite);
-
-        // Write the updated bounce buffer back to the block
-        block_write(blockIndex, bounceBuffer);
-
-        bytesWritten += bytesToWrite;
-        fd_table[fd].offset += bytesToWrite; // Update the file descriptor's offset
-
-        // Update file size if necessary
-        if (fd_table[fd].offset > file->file_size) {
-            file->file_size = fd_table[fd].offset;
-            // Optionally, write back the updated root directory entry to disk here
-        }
+        bytes_written += bytes_to_write;
     }
 
-    return bytesWritten;
+    // Update file size if we've written beyond the current file size
+    if (offset + bytes_written > dir_entry->file_size) {
+        dir_entry->file_size = offset + bytes_written;
+    }
+
+    // Update the file descriptor's offset
+    fd_table[fd].offset += bytes_written;
+
+    free(bounce_buffer);
+    return bytes_written;
 }
 
 int fs_read(int fd, void *buf, size_t count) {
@@ -483,14 +482,15 @@ size_t calculate_block_index(size_t offset, uint16_t first_data_block) {
     return current_block;
 }
 
-uint16_t allocate_new_block() {
+uint16_t allocate_new_block(void) {
+    // Implementation for finding a free block in the FAT and marking it as used
     for (uint16_t i = 0; i < superblock.data_blocks; i++) {
-        if (fat16[i] == 0) {
-            fat16[i] = FAT_EOC;
-            return i;
+        if (fat16[i] == 0) { // 0 indicates a free block
+            fat16[i] = FAT_EOC; // Mark as end of chain (or use another value to continue the chain)
+            return i + superblock.data_start_index; // Return the actual block index on disk
         }
     }
-    return FAT_EOC;
+    return 0; // Indicate no free blocks are available
 }
 
 void update_fat_chain(uint16_t first_block, uint16_t new_block) {
