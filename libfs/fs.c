@@ -13,6 +13,9 @@ size_t calculate_block_index(size_t offset, uint16_t first_data_block);
 uint16_t allocate_new_block(void);
 void update_fat_chain(uint16_t first_block, uint16_t new_block);
 size_t minimum(size_t a, size_t b);
+uint16_t get_offset_blk(int fd, size_t offset);
+int file_blk_count(uint32_t sz);
+static inline int32_t clamp(int32_t val, int32_t min, int32_t max);
 
 #define FAT_EOC 0xFFFF
 
@@ -420,8 +423,7 @@ int fs_write(int fd, void *buf, size_t count)
     return bytesWritten;
 }
 
-int fs_read(int fd, void *buf, size_t count)
-{
+int fs_read(int fd, void *buf, size_t count) {
     if (!fat16 || !root_directory || !buf) {
         return -1;
     }
@@ -429,49 +431,42 @@ int fs_read(int fd, void *buf, size_t count)
         return -1;
     }
 
-    struct RootDirectory *file = &root_directory[fd_table[fd].root_dir_index];
-    size_t fileSize = file->file_size;
-    size_t fileOffset = fd_table[fd].offset;
 
-    if (fileOffset >= fileSize) {
-        return 0; // Offset is at or beyond the end of the file, nothing to read
+    struct RootDirectory *dir_entry = &root_directory[fd_table[fd].root_dir_index];
+    size_t offset = fd_table[fd].offset;
+    int32_t real_count = clamp(dir_entry->file_size - offset, 0, count); // Assuming clamp function limits between 0 and count
+    if (real_count == 0) return 0;
+
+    uint16_t read_blk = get_offset_blk(fd, offset);
+    if (read_blk == 0) return -1; // Nothing can be read
+
+    void *bounce_buffer = malloc(BLOCK_SIZE);
+    memset(bounce_buffer, 0, BLOCK_SIZE);
+    int buf_idx = 0;
+    block_read(read_blk + superblock.data_start_index, bounce_buffer); // Assuming superblock has data_start_index field
+    memcpy(buf + buf_idx, bounce_buffer, clamp(real_count, 0, BLOCK_SIZE));
+
+    buf_idx += clamp(real_count, 0, BLOCK_SIZE);
+    real_count -= BLOCK_SIZE; // Remaining bytes to read
+    read_blk = fat16[read_blk]; // Get the next block in the file's data block chain
+
+    while (real_count > 0 && read_blk != FAT_EOC) {
+        if (real_count >= BLOCK_SIZE) {
+            block_read(read_blk + superblock.data_start_index, buf + buf_idx);
+            buf_idx += BLOCK_SIZE;
+        } else {
+            block_read(read_blk + superblock.data_start_index, bounce_buffer);
+            memcpy(buf + buf_idx, bounce_buffer, real_count);
+            buf_idx += real_count; // This increment is actually unnecessary
+        }
+        real_count -= BLOCK_SIZE;
+        read_blk = fat16[read_blk]; // Advance to the next block
     }
 
-    if (count + fileOffset > fileSize) {
-        count = fileSize - fileOffset;
-    }
+    free(bounce_buffer);
+    fd_table[fd].offset += (count - real_count); // Update file offset
 
-    size_t bytesRead = 0;
-    char bounceBuffer[BLOCK_SIZE];
-
-    while (bytesRead < count) {
-        uint16_t current_block = calculate_block_index(fileOffset + bytesRead, file->first_data_block);
-        if (current_block == FAT_EOC) {
-            break; // Reached the end of the file or an error occurred
-        }
-
-        // Calculate blockOffset and bytesToRead for partial block reads
-        size_t blockOffset = (fileOffset + bytesRead) % BLOCK_SIZE;
-        size_t bytesToRead = minimum(BLOCK_SIZE - blockOffset, count - bytesRead);
-
-        // Adjust bytesToRead based on the file's remaining size
-        if (bytesToRead + bytesRead + fileOffset > fileSize) {
-            bytesToRead = fileSize - bytesRead - fileOffset;
-        }
-
-        // Read the block into bounceBuffer
-        if (block_read(current_block, bounceBuffer) == -1) {
-            break; // Failed to read the block
-        }
-
-        // Copy the needed part of bounceBuffer to buf
-        memcpy((char*)buf + bytesRead, bounceBuffer + blockOffset, bytesToRead);
-
-        bytesRead += bytesToRead;
-        fd_table[fd].offset += bytesToRead; // Update the file descriptor's offset
-    }
-    
-    return bytesRead;
+    return (count - real_count); // Return the number of bytes actually read
 }
 
 size_t calculate_block_index(size_t offset, uint16_t first_data_block) {
@@ -516,4 +511,40 @@ size_t minimum(size_t a, size_t b) {
     } else {
         return b;
     }
+}
+
+uint16_t get_offset_blk(int fd, size_t offset) {
+    if (!fat16 || !root_directory) {
+        return -1;
+    }
+    if (fd < 0 || fd >= FS_OPEN_MAX_COUNT || fd_table[fd].used == 0) {
+        return -1;
+    }
+
+
+    struct RootDirectory *dir_entry = &root_directory[fd_table[fd].root_dir_index];
+    if (offset >= dir_entry->file_size) {
+        return 0; // Offset is larger than file size
+    }
+
+    int block_count = file_blk_count(offset);
+    uint16_t current_block = dir_entry->first_data_block;
+    for (int i = 1; i < block_count; ++i) { // Navigate to the correct block
+        current_block = fat16[current_block];
+    }
+
+    return current_block;
+}
+
+int file_blk_count(uint32_t sz) {
+    if (sz == 0) return 1;
+    
+    uint32_t blocks = sz / BLOCK_SIZE;
+    return (blocks * BLOCK_SIZE < sz) ? (blocks + 1) : blocks;
+}
+
+static inline int32_t clamp(int32_t val, int32_t min, int32_t max) {
+    if (val < min) return min;
+    if (val > max) return max;
+    return val;
 }
