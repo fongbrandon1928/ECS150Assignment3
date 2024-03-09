@@ -66,7 +66,7 @@ for changing the file offset within a file.
 
 ### allocate_new_block
 
-allocate_new_block searches the file allocation table (FAT) for a free block 
+'allocate_new_block' searches the file allocation table (FAT) for a free block 
 that can be allocated for file storage. Upon finding a free block, it marks this 
 block as used (typically by setting its FAT entry to FAT_EOC to indicate it's 
 the last block in a chain, or to the index of the next block in an ongoing 
@@ -77,7 +77,7 @@ for new data, facilitating file growth and efficient disk space utilization.
 
 ### get_offset_blk
 
-get_offset_blk calculates which block within the FAT corresponds to a specific 
+'get_offset_blk' calculates which block within the FAT corresponds to a specific 
 offset within a file. Given a file descriptor (fd) and an offset in bytes from 
 the beginning of the file, it navigates through the file's chain of blocks in 
 the FAT to find the block that contains the byte at the specified offset. This 
@@ -89,7 +89,7 @@ exact block on the disk where the operation should begin or end.
 
 ### expand_file
 
-expand_file is tasked with increasing a file's size to a specified 'new_size'. 
+'expand_file' is tasked with increasing a file's size to a specified 'new_size'. 
 It is called when a write operation requires the file to be larger than its 
 current size, necessitating the allocation of additional data blocks and 
 updating of the file's metadata to reflect its new size. This function operates 
@@ -103,7 +103,7 @@ dynamically grow as data is added to them.
 
 ### link_new_block_to_file
 
-link_new_block_to_file integrates a newly allocated block into a file's 
+'link_new_block_to_file' integrates a newly allocated block into a file's 
 existing data block chain. It accepts the index of the file's entry in the root 
 directory ('root_dir_index') and the FAT index of the newly allocated block 
 ('new_block'). The function first checks if the file currently has any data 
