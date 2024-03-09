@@ -11,7 +11,7 @@
 uint16_t allocate_new_block(void);
 size_t minimum(size_t a, size_t b);
 uint16_t get_offset_blk(int fd, size_t offset);
-int file_blk_count(uint32_t sz);
+int file_blk_count(uint32_t size);
 static inline int32_t clamp(int32_t val, int32_t min, int32_t max);
 void expand_file(int fd, size_t new_size);
 void link_new_block_to_file(int root_dir_index, uint16_t new_block);
@@ -496,11 +496,11 @@ uint16_t get_offset_blk(int fd, size_t offset) {
     return current_block;
 }
 
-int file_blk_count(uint32_t sz) {
-    if (sz == 0) return 1;
+int file_blk_count(uint32_t size) {
+    if (size == 0) return 1;
 
-    uint32_t blocks = sz / BLOCK_SIZE;
-    return (blocks * BLOCK_SIZE < sz) ? (blocks + 1) : blocks;
+    uint32_t blocks = size / BLOCK_SIZE;
+    return (blocks * BLOCK_SIZE < size) ? (blocks + 1) : blocks;
 }
 
 /* Dynamically allocates new blocks as needed when writing data extends beyond the 
