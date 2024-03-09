@@ -115,7 +115,7 @@ to point to the newly allocated block, effectively linking the new block to the
 end of the file's chain of blocks. This operation is crucial for file 
 expansion, enabling the file to grow and occupy additional blocks as needed.
 
-## Limitations/CHallenges
+## Limitations/Challenges
 
 The initial implementation of fs_read struggled with correctly calculating 
 which block to start reading from based on the file descriptor's offset. The 
